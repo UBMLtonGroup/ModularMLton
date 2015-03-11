@@ -32,7 +32,7 @@ PROF := mlprof
 YACC := mlyacc
 NLFFIGEN := mlnlffigen
 PATH := $(BIN):$(SRC)/bin:$(shell echo $$PATH)
-CP := /bin/cp -fpR
+CP := cp -fpR
 GZIP := gzip --force --best
 RANLIB := ranlib
 

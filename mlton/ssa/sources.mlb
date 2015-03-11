@@ -60,6 +60,8 @@ local
    contify.fun
    deep-flatten.fun
    flatten.fun
+   hook-gc.sig
+   hook-gc.fun
    inline.sig
    inline.fun
    introduce-loops.fun
