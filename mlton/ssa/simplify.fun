@@ -19,6 +19,7 @@ structure CombineConversions = CombineConversions (S)
 structure ConstantPropagation = ConstantPropagation (S)
 structure Contify = Contify (S)
 structure Flatten = Flatten (S)
+structure HookGC = HookGC (S)
 structure Inline = Inline (S)
 structure IntroduceLoops = IntroduceLoops (S)
 structure KnownCase = KnownCase (S)
@@ -86,6 +87,7 @@ val ssaPassesDefault =
    {name = "redundant", doit = Redundant.transform} ::
    {name = "knownCase", doit = KnownCase.transform} ::
    {name = "removeUnused4", doit = RemoveUnused.transform} ::
+   {name = "hookGC", doit = HookGC.transform} ::
    nil
 
 val ssaPassesMinimal =

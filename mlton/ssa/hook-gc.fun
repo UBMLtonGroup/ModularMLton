@@ -20,50 +20,23 @@ open S
  * the modular GC.
  *)
 
-structure CType = CFunction.CType
+open CFunction
 
-fun dummyLogHook () = 
-    CFunction.T { args = Vector.new1 ( CType.gcState () )
-		, convention = Cdecl
-		, kind = Kind.Runtime { bytesNeeded = NONE
-				      , ensureBytesFree = false
-				      , mayGC = false
-				      , maySwitchThreads = false
-				      , modifiesFrontier = false
-				      , readsStackTop = true
-				      , writesStackTop = false }
-		, prototype = ( Vector.new1 ( Type.gcState () )
-			      , NONE )
-		, return = Type.unit
-		, symbolScope = SymbolScope.Private
-		, target = Target.Direct "gc_log" }
+fun arrayAllocateHook type_parameter =
+  CFunction.T { args = Vector.new0 ()
+	      , convention = Convention.Cdecl
+	      , kind = Kind.Impure
+	      , prototype = (Vector.new0 (), SOME CType.objptr)
+	      , return = Type.array type_parameter
+	      , symbolScope = SymbolScope.External
+	      , target = Target.Direct "gc_allocate_array" }
 
-fun arrayAllocateHook return =
-    CFunction.T { args = Vector.new3 ( CType.gcState ()
-				     , CType.csize ()
-				     , CType.objptrHeader () )
-		, convention = Cdecl
-		, kind = Kind.Runtime { bytesNeeded = NONE
-				      , ensureBytesFree = true
-				      , mayGC = true
-				      , maySwitchThreads = false
-				      , modifiesFrontier = true
-				      , readsStackTop = true
-				      , writesStackTop = true }
-		, prototype = ( Vector.new3 ( CType.gcState ()
-					    , CType.csize ()
-					    , CType.objptrHeader () )
-			      , SOME CType.objptr )
-		, return = return
-		, symbolScope = SymbolScope.Private
-		, target = Target.Direct "gc_allocate_array" }
-
-fun hookPrimitiveApplication ( arguments, primitive, argumentTypes ) =
+fun hookPrimitiveApplication ( arguments, primitive, type_parameters ) =
     let val primitive = 
-	    case primitive of
-		Prim.Array_array => { args = Vector.sub (arguments, 0)
-				    , prim = Prim.FFI dummyLogHook ()
-				    , targs = Type.gctate () }
+	    case Prim.name primitive of
+		Prim.Name.Array_array => { args = Vector.new0 ()
+					 , prim = Prim.ffi (arrayAllocateHook (Vector.sub (type_parameters, 0)))
+					 , targs = Vector.new0 () }
 	      (* TODO(nate): non-exhaustive list of primitives to implement *)
 	      (* | Prim.Array_length =>  *)
 	      (* | Prim.Array_sub =>  *)
@@ -75,7 +48,9 @@ fun hookPrimitiveApplication ( arguments, primitive, argumentTypes ) =
 	      (* | Prim.Weak_canGet =>  *)
 	      (* | Prim.Weak_get =>  *)
 	      (* | Prim.Weak_new =>  *)
-	      | other => other
+	      | other => { args = arguments
+			 , prim = primitive
+			 , targs = type_parameters }
     in 
 	primitive
     end
@@ -85,20 +60,21 @@ fun hookPrimitiveApplication ( arguments, primitive, argumentTypes ) =
  * SSA Expressions all require passing through the GC Barriers.
  *)
 
-fun mapStatementPrimitiveApplications (statement, transform) =
-    let val Statement.T { expression, ty, var } = statement
-	val expression = case expression of
-			     Exp.PrimApp { args, prim, targs } => transform ( args, prim, targs )
-			   | other => other
-    in
-	Statement.T { exp = expression
-		    , ty = ty
-		    , var = var}
-    end
+fun mapStatementPrimitiveApplications statement =
+  let val Statement.T { exp, ty, var } = statement
+      val exp = case exp of
+		    Exp.PrimApp { args, prim, targs } =>
+		    Exp.PrimApp (hookPrimitiveApplication (args, prim, targs))
+		  | other => other
+  in
+      Statement.T { exp = exp
+		  , ty = ty
+		  , var = var}
+  end
 
-fun mapBlockStatements (block, transform) =
+fun mapBlockStatements block =
     let val Block.T { args, label, statements, transfer } = block
-	val statements = Vector.map (statements, transform)
+	val statements = Vector.map (statements, mapStatementPrimitiveApplications)
     in
 	Block.T { args = args
 		, label = label
@@ -106,11 +82,11 @@ fun mapBlockStatements (block, transform) =
 		, transfer = transfer }
     end
 
-fun mapFunctionBlocks (function, transform) = 
+fun mapFunctionBlocks function = 
     let val { args, blocks, mayInline, name, raises, returns, start } =
 	    Function.dest function
     in Function.new { args = args
-		    , blocks = Vector.map (blocks, transform)
+		    , blocks = Vector.map (blocks, mapBlockStatements)
 		    , mayInline = mayInline
 		    , name = name
 		    , raises = raises
@@ -121,7 +97,7 @@ fun mapFunctionBlocks (function, transform) =
 fun transform program =
     let
 	val Program.T { datatypes, functions, globals, main } = program
-	val functions = List.revMap (functions, transformFunction)
+	val functions = List.revMap (functions, mapFunctionBlocks)
     in
 	Program.T { datatypes = datatypes
 		  , functions = functions
